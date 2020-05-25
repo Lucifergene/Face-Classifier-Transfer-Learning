@@ -1,108 +1,39 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # Using MobileNet for our Face Classifier
+# # Using VGG16 for our Face Classifier
 # 
-# ### Taking 100 pictures
-
-# In[ ]:
-
-
-import cv2
-import numpy as np
-
-# Load HAAR face classifier
-face_classifier = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
-
-# Load functions
-def face_extractor(img):
-    # Function detects faces and returns the cropped face
-    # If no face detected, it returns the input image
-    
-    gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
-    faces = face_classifier.detectMultiScale(gray, 1.3, 5)
-    
-    if faces is ():
-        return None
-    
-    # Crop all faces found
-    for (x,y,w,h) in faces:
-        cropped_face = img[y:y+h, x:x+w]
-
-    return cropped_face
-
-# Initialize Webcam
-cap = cv2.VideoCapture(0)
-count = 0
-
-# Collect 100 samples of your face from webcam input
-while True:
-
-    ret, frame = cap.read()
-    if face_extractor(frame) is not None:
-        count += 1
-        face = cv2.resize(face_extractor(frame), (200, 200))
-        face = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
-
-        # Save file in specified directory with unique name
-        # file_name_path = 'C://Users//KIIT//Desktop//MLOPS//faceRecog//avik//image_' + str(count) + '.jpg'
-        file_name_path = 'C://Users//KIIT//Desktop//MLOPS//datasets//train//avik//image_' + str(count) + '.jpg'
-
-        cv2.imwrite(file_name_path, face)
-
-        # Put count on images and display live count
-        cv2.putText(face, str(count), (50, 50), cv2.FONT_HERSHEY_COMPLEX, 1, (0,255,0), 2)
-        cv2.imshow('Face Cropper', face)
-        
-    else:
-        print("Face not found")
-        pass
-
-    if cv2.waitKey(1) == 13 or count == 100: #13 is the Enter Key
-        break
-        
-cap.release()
-cv2.destroyAllWindows()      
-print("Collecting Samples Complete")
-
-
 # Freeze all layers except the top 4, as we'll only be training the top 4
 
-# In[1]:
+from keras.applications import VGG16
 
-
-from keras.applications import MobileNet
-
-# MobileNet was designed to work on 224 x 224 pixel input images sizes
+# VGG16 was designed to work on 224 x 224 pixel input images sizes
 img_rows, img_cols = 224, 224 
 
-# Re-loads the MobileNet model without the top or FC layers
-MobileNet = MobileNet(weights = 'imagenet', 
+# Re-loads the VGG16 model without the top or FC layers
+model = VGG16(weights = 'imagenet', 
                  include_top = False, 
                  input_shape = (img_rows, img_cols, 3))
 
 # Here we freeze the last 4 layers 
 # Layers are set to trainable as True by default
-for layer in MobileNet.layers:
+for layer in model.layers:
     layer.trainable = False
     
 # Let's print our layers 
-for (i,layer) in enumerate(MobileNet.layers):
+for (i,layer) in enumerate(model.layers):
     print(str(i) + " "+ layer.__class__.__name__, layer.trainable)
 
 
 # ### Let's make a function that returns our FC Head
 
-# In[2]:
 
-
-def lw(bottom_model, num_classes):
+def add_layer(bottom_model, num_classes):
     """creates the top or head of the model that will be 
     placed ontop of the bottom layers"""
 
     top_model = bottom_model.output
     top_model = GlobalAveragePooling2D()(top_model)
-    top_model = Dense(1024,activation='relu')(top_model)
     top_model = Dense(1024,activation='relu')(top_model)
     top_model = Dense(512,activation='relu')(top_model)
     top_model = Dense(num_classes,activation='softmax')(top_model)
@@ -110,9 +41,6 @@ def lw(bottom_model, num_classes):
 
 
 # ### Let's add our FC Head back onto MobileNet
-
-# In[3]:
-
 
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, Activation, Flatten, GlobalAveragePooling2D
@@ -123,22 +51,19 @@ from keras.models import Model
 # Set our class number to 3 (Young, Middle, Old)
 num_classes = 3
 
-FC_Head = lw(MobileNet, num_classes)
+FC_Head = add_layer(model, num_classes)
 
-model = Model(inputs = MobileNet.input, outputs = FC_Head)
+modelnew = Model(inputs = model.input, outputs = FC_Head)
 
-print(model.summary())
+print(modelnew.summary())
 
 
 # ### Loading our Face Datasets
 
-# In[4]:
-
-
 from keras.preprocessing.image import ImageDataGenerator
 
-train_data_dir = 'datasets/train'
-validation_data_dir = 'datasets/validation/'
+train_data_dir = '/root/datasets/train/'
+validation_data_dir = '/root/datasets/validation/'
 
 # Let's use some data augmentaiton 
 train_datagen = ImageDataGenerator(
@@ -170,14 +95,11 @@ validation_generator = validation_datagen.flow_from_directory(
 # ### Training out Model
 # - Note we're using checkpointing and early stopping
 
-# In[ ]:
-
-
 from keras.optimizers import RMSprop
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 
                      
-checkpoint = ModelCheckpoint("faces_of_me_obama_srk.h5",
+checkpoint = ModelCheckpoint("/root/face_vgg16.h5",
                              monitor="val_loss",
                              mode="min",
                              save_best_only = True,
@@ -193,7 +115,7 @@ earlystop = EarlyStopping(monitor = 'val_loss',
 callbacks = [earlystop, checkpoint]
 
 # We use a very small learning rate 
-model.compile(loss = 'categorical_crossentropy',
+modelnew.compile(loss = 'categorical_crossentropy',
               optimizer = RMSprop(lr = 0.001),
               metrics = ['accuracy'])
 
@@ -202,100 +124,28 @@ nb_train_samples = 102
 nb_validation_samples = 28 
 
 # We only train 5 EPOCHS 
-epochs = 10
-batch_size = 1
+epochs = 2
+batch_size = 16
 
-history = model.fit_generator(
+history = modelnew.fit_generator(
     train_generator,
     steps_per_epoch = nb_train_samples // batch_size,
     epochs = epochs,
     callbacks = callbacks,
     validation_data = validation_generator,
-    validation_steps = nb_validation_samples // batch_size)
+    validation_steps = nb_validation_samples // batch_size )
 
+modelnew.save("/root/face_vgg16.h5")
 
-# ### Loading our classifer
-# 
+# ### Re-training the Model
+# - Triggering the next job of the accuracy falls below 92%
 
-# In[6]:
-
-
-from keras.models import load_model
-
-classifier = load_model('faces_of_me_obama_srk.h5')
-
-
-# ### Testing our classifer on some test images
-
-# In[7]:
-
+final_accuracy=history.history["val_accuracy"][-1]
+print(final_accuracy)
 
 import os
-import cv2
-import numpy as np
-from os import listdir
-from os.path import isfile, join
-
-faces_dict = {"[0]": "avik", 
-              "[1]": "obama",
-                "[2]": "srk"}
-
-faces_dict_n = {"avik": "avik", 
-                "obama": "obama",
-                 "srk": "srk"}
-
-def draw_test(name, pred, im):
-    monkey = faces_dict[str(pred)]
-    BLACK = [0,0,0]
-    expanded_image = cv2.copyMakeBorder(im, 80, 0, 0, 100 ,cv2.BORDER_CONSTANT,value=BLACK)
-    cv2.putText(expanded_image, monkey, (20, 60) , cv2.FONT_HERSHEY_SIMPLEX,1, (0,0,255), 2)
-    cv2.imshow(name, expanded_image)
-
-def getRandomImage(path):
-    """function loads a random images from a random folder in our test path """
-    folders = list(filter(lambda x: os.path.isdir(os.path.join(path, x)), os.listdir(path)))
-    random_directory = np.random.randint(0,len(folders))
-    path_class = folders[random_directory]
-    print("Class - " + faces_dict_n[str(path_class)])
-    file_path = path + path_class
-    file_names = [f for f in listdir(file_path) if isfile(join(file_path, f))]
-    random_file_index = np.random.randint(0,len(file_names))
-    image_name = file_names[random_file_index]
-    return cv2.imread(file_path+"/"+image_name)    
-
-for i in range(0,10):
-    input_im = getRandomImage("datasets/validation/")
-    input_original = input_im.copy()
-    input_original = cv2.resize(input_original, None, fx=0.5, fy=0.5, interpolation = cv2.INTER_LINEAR)
-    
-    input_im = cv2.resize(input_im, (224, 224), interpolation = cv2.INTER_LINEAR)
-    input_im = input_im / 255.
-    input_im = input_im.reshape(1,224,224,3) 
-    
-    # Get Prediction
-    res = np.argmax(classifier.predict(input_im, 1, verbose = 0), axis=1)
-    
-    # Show image with predicted class
-    draw_test("Prediction", res, input_original) 
-    cv2.waitKey(0)
-
-cv2.destroyAllWindows()
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
+if final_accuracy < 0.92:
+    os.system("curl --user 'admin:admin' http://192.168.43.133:8080/view/Mlops-project-1/job/Retraining_the_Model/build?token=retrain_model")
+else:
+    print("Your New accuracy= ",final_accuracy)
 
